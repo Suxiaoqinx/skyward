@@ -983,12 +983,21 @@ fn percent(share: f32) -> u32 {
 }
 
 /// Where an update stands, and the share of its step done when known.
-fn update_stage(l: Lang, stage: Option<&Stage>) -> (String, Option<f32>) {
+fn update_stage(l: Lang, stage: Option<&Stage>, partition: Option<&str>) -> (String, Option<f32>) {
     match stage {
         Some(Stage::Writing { done, total }) => {
             let s = share(*done, *total);
             let p = percent(s);
-            (tr!(l, "第 1 步，共 3 步：写入新系统 {p}%", "第 1 步，共 3 步：寫入新系統 {p}%", "Step 1 of 3: writing the new system {p}%"), Some(s))
+            let said = match partition {
+                Some(partition) => tr!(
+                    l,
+                    "第 1 步，共 3 步：写入 {partition} {p}%",
+                    "第 1 步，共 3 步：寫入 {partition} {p}%",
+                    "Step 1 of 3: writing {partition} {p}%"
+                ),
+                None => tr!(l, "第 1 步，共 3 步：写入新系统 {p}%", "第 1 步，共 3 步：寫入新系統 {p}%", "Step 1 of 3: writing the new system {p}%"),
+            };
+            (said, Some(s))
         }
         Some(Stage::Verifying { index, count, partition }) => {
             let n = index + 1;
@@ -1071,6 +1080,18 @@ fn script_output(c: &mut Canvas, cx: &Ctx, y: f32, rows: &mut Option<Rows>) -> f
         return y;
     }
     let y = widgets::section(c, cx.t, cx.f, y, cx.state.lang.pick(["安装脚本输出", "安裝指令碼輸出", "Install script output"]));
+    *rows = Some(Rows { edges: widgets::output_edges(c, cx.t, cx.f, y, lines), action: None });
+    y
+}
+
+/// What update_engine last said, where it said anything: its latest lines
+/// under a heading, the last thing on the page.
+fn engine_output(c: &mut Canvas, cx: &Ctx, y: f32, rows: &mut Option<Rows>) -> f32 {
+    let lines = &cx.state.engine_output;
+    if lines.is_empty() {
+        return y;
+    }
+    let y = widgets::section(c, cx.t, cx.f, y, cx.state.lang.pick(["刷入日志", "刷入日誌", "Install log"]));
     *rows = Some(Rows { edges: widgets::output_edges(c, cx.t, cx.f, y, lines), action: None });
     y
 }
@@ -1285,7 +1306,7 @@ pub fn installing(cx: &Ctx) -> Frame {
                 Some(v) => tr!(l, "正在安装 {v}", "正在安裝 {v}", "Installing {v}"),
                 None => l.pick(["正在安装系统更新", "正在安裝系統更新", "Installing the system update"]).into(),
             };
-            let (detail, done) = update_stage(l, stage.as_ref());
+            let (detail, done) = update_stage(l, stage.as_ref(), s.writing_partition.as_deref());
             let y = widgets::progress_card(&mut c, t, f, top, &title, &detail, done);
             let until = until_installed(l, s.source);
             let note = match i.slot.map(|s| s.other().letter()) {
@@ -1293,7 +1314,7 @@ pub fn installing(cx: &Ctx) -> Frame {
                 None => until.to_string(),
             };
             let y = widgets::footnote(&mut c, t, f, y, &note);
-            if *overwriting {
+            let y = if *overwriting {
                 let note = l.pick([
                     "正在覆盖当前系统，安装完成前重启将无法进入系统。",
                     "正在覆寫目前的系統，安裝完成前重新啟動將無法進入系統。",
@@ -1302,7 +1323,8 @@ pub fn installing(cx: &Ctx) -> Frame {
                 widgets::footnote(&mut c, t, f, y, note)
             } else {
                 y
-            }
+            };
+            engine_output(&mut c, cx, y, &mut rows)
         }
         Install::Flashing { partition, stage } => {
             let (detail, done) = match stage {
@@ -1486,15 +1508,21 @@ fn finished(
             let slot = slot.letter();
             let detail = tr!(
                 l,
-                "新系统已安装到槽位 {slot}，重启后将从该槽位启动，并在首次启动后合并。",
-                "新系統已安裝到槽位 {slot}，重新啟動後將從該槽位啟動，並在首次啟動後合併。",
-                "The new system is installed to slot {slot}, which starts after a reboot and merges once it has started."
+                "新系统已安装到槽位 {slot}，重启到 recovery 后会自动合并，合并完成后再重启到系统。",
+                "新系統已安裝到槽位 {slot}，重新啟動到復原模式後會自動合併，合併完成後再重新啟動到系統。",
+                "The new system is installed to slot {slot}. It merges in recovery after a reboot, and starts once you reboot to the system."
             );
             let y = widgets::list(c, t, f, top, &[standing(installed, GREEN, Icon::Install, &detail)]).bottom;
-            let next = widgets::list(c, t, f, y + gap, &[restart]);
-            out.extend(hits(&next.rows, &[Action::RebootTo(Target::System)]));
+            let merge = Row::new(l.pick(["重启到 recovery 合并更新", "重新啟動到復原模式合併更新", "Reboot to recovery to merge"])).icon(ORANGE, Icon::Power);
+            let next = widgets::list(c, t, f, y + gap, &[merge]);
+            out.extend(hits(&next.rows, &[Action::RebootTo(Target::Recovery)]));
             let y = reflashed(c, cx, next.bottom);
-            afterwards_of(c, cx, y, true)
+            let note = l.pick([
+                "合并完成并重启到系统前，不要断电。",
+                "合併完成並重新啟動到系統前，請勿斷電。",
+                "Don't power off before the merge finishes and the system starts.",
+            ]);
+            afterwards_of(c, cx, widgets::footnote(c, t, f, y, note), true)
         }
         Outcome::Flashed { partition, slots } => {
             let slots = fmt::slots(l, slots);
@@ -2596,6 +2624,13 @@ pub fn update(cx: &Ctx) -> Frame {
         out.push(Hit { rect: track, action: Action::Confirm(Confirm::Merge) });
         let note = l.pick(["合并后无法回到更新前的系统。", "合併後無法回到更新前的系統。", "Once merged, the system from before the update can't come back."]);
         y = widgets::footnote(&mut c, t, f, track.y + track.h, note);
+    }
+    if s.update == Standing::Merged {
+        let restart = Row::new(l.pick(["重启到系统", "重新啟動到系統", "Reboot to system"])).icon(ORANGE, Icon::Power);
+        let next = widgets::list(&mut c, t, f, y + t.m.dp(24.0), &[restart]);
+        out.extend(hits(&next.rows, &[Action::RebootTo(Target::System)]));
+        let note = l.pick(["更新已合并，重启后系统从合并后的分区启动。", "更新已合併，重新啟動後系統從合併後的分割區啟動。", "The update is merged; the system starts from the merged partitions after a reboot."]);
+        y = widgets::footnote(&mut c, t, f, next.bottom, note);
     }
     Frame::new(t, fit(c, t, y), out, l.pick(UPDATE), top)
 }
@@ -4011,8 +4046,12 @@ mod tests {
         assert_eq!(script_stage(Lang::En, None, &[]), ("Running the install script", None));
         assert_eq!(script_stage(l, Some(&Stage::Script { thousandths: 250 }), &said), ("- Flashing boot", Some(0.25)), "past a blank line");
         assert_eq!(script_stage(l, Some(&Stage::Reflashing { done: 1, total: 4 }), &said), ("正在重新刷入 Skyward", Some(0.25)));
-        assert_eq!(update_stage(Lang::En, Some(&Stage::Reflashing { done: 3, total: 4 })), ("Flashing Skyward again".to_string(), Some(0.75)));
-        assert_eq!(update_stage(Lang::Hant, Some(&Stage::Writing { done: 1, total: 4 })).0, "第 1 步，共 3 步：寫入新系統 25%");
+        assert_eq!(update_stage(Lang::En, Some(&Stage::Reflashing { done: 3, total: 4 }), None), ("Flashing Skyward again".to_string(), Some(0.75)));
+        assert_eq!(update_stage(Lang::Hant, Some(&Stage::Writing { done: 1, total: 4 }), None).0, "第 1 步，共 3 步：寫入新系統 25%");
+        assert_eq!(
+            update_stage(Lang::Hant, Some(&Stage::Writing { done: 1, total: 4 }), Some("system")).0,
+            "第 1 步，共 3 步：寫入 system 25%"
+        );
     }
 
     #[test]

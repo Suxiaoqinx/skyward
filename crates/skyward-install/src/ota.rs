@@ -41,6 +41,8 @@ pub fn status(line: &str) -> Option<Status> {
 pub enum Log {
     /// A partition the payload writes, listed once before writing starts.
     Partition(String),
+    /// It started writing a partition, at the point `partition` names.
+    Writing(String),
     /// Super has no room for snapshots, so it writes over the partitions
     /// of the slot the phone runs from.
     Overwriting,
@@ -53,6 +55,9 @@ pub fn log(line: &str) -> Option<Log> {
         let (name, _) = rest.split_once(' ')?;
         return Some(Log::Partition(name.to_string()));
     }
+    if let Some(rest) = after(line, "operations to partition \"") {
+        return rest.split_once('"').map(|(name, _)| Log::Writing(name.to_string()));
+    }
     if line.contains("Will overwrite existing partitions.") {
         return Some(Log::Overwriting);
     }
@@ -60,6 +65,15 @@ pub fn log(line: &str) -> Option<Log> {
     let (index, rest) = rest.split_once(" (")?;
     let (name, _) = rest.split_once(')')?;
     Some(Log::Hashing { index: index.parse().ok()?, partition: name.to_string() })
+}
+
+/// A line as the screen shows it: without the level, file and line number
+/// update_engine opens it with.
+pub fn readable(line: &str) -> &str {
+    match line.strip_prefix('[').and_then(|rest| rest.split_once("] ")) {
+        Some((_, text)) => text,
+        None => line,
+    }
 }
 
 fn after<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
@@ -157,8 +171,21 @@ mod tests {
             log("[INFO:dynamic_partition_control_android.cc(1349)] Will overwrite existing partitions. Slot B may be unbootable until update finishes!"),
             Some(Log::Overwriting)
         );
+        assert_eq!(
+            log("[INFO:partition_writer.cc(183)] Applying 12 operations to partition \"system\""),
+            Some(Log::Writing("system".into()))
+        );
         assert_eq!(log("[INFO:delta_performer.cc(267)] PartitionInfo old odm sha256: 00 size: 4"), None);
         assert_eq!(log("[INFO:delta_performer.cc(108)] Completed 10/400 operations (2%)"), None);
+    }
+
+    #[test]
+    fn a_line_shown_drops_the_level_and_the_files_it_names() {
+        assert_eq!(
+            readable("[INFO:partition_writer.cc(183)] Applying 12 operations to partition \"system\""),
+            "Applying 12 operations to partition \"system\""
+        );
+        assert_eq!(readable("no prefix"), "no prefix");
     }
 
     #[test]

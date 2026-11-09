@@ -1612,6 +1612,10 @@ pub struct State {
     pub package_name: Option<String>,
     /// What the install script last run showed, its latest lines.
     pub script_output: Vec<String>,
+    /// What update_engine last said, its latest lines.
+    pub engine_output: Vec<String>,
+    /// The partition update_engine writes now.
+    pub writing_partition: Option<String>,
     /// A zip's install script runs only if the zip was signed with one of
     /// the phone's update keys.
     pub check_signature: bool,
@@ -1775,6 +1779,8 @@ impl Default for State {
             source: Source::Computer,
             package_name: None,
             script_output: Vec::new(),
+            engine_output: Vec::new(),
+            writing_partition: None,
             check_signature: false,
             recovery_partitions: false,
             keep_recovery: true,
@@ -2225,6 +2231,9 @@ const BEHIND_DIM: f32 = 0.47;
 /// The most lines of what an install script shows that its page keeps,
 /// the latest; the log keeps them all.
 const SCRIPT_LINES: usize = 500;
+/// The most lines of what update_engine says that the installing page
+/// keeps, the latest.
+const ENGINE_LINES: usize = 12;
 /// How long a finger rests on an entry before it counts as held, as the
 /// system's long press does.
 const LONG_PRESS_MS: u64 = 400;
@@ -3803,6 +3812,8 @@ impl App {
         let s = &mut self.state;
         (s.install, s.source, s.package_name) = (install, source, name);
         s.script_output.clear();
+        s.engine_output.clear();
+        s.writing_partition = None;
         s.reflash = None;
     }
 
@@ -4717,6 +4728,14 @@ impl App {
         self.push(screen);
     }
 
+    /// Open the update page, where an update found waiting in this slot
+    /// merges.
+    pub fn open_update(&mut self) {
+        if self.screen() != Screen::Update {
+            self.open(Screen::Update);
+        }
+    }
+
     fn push(&mut self, screen: Screen) {
         self.stack.push((screen, 0.0, Focus::Unset));
         self.settle_page();
@@ -5024,6 +5043,14 @@ impl App {
                 }
                 shown.push(line);
             }
+            Event::Log(line) => {
+                let shown = &mut self.state.engine_output;
+                if shown.len() == ENGINE_LINES {
+                    shown.remove(0);
+                }
+                shown.push(line.chars().take(160).collect());
+            }
+            Event::Writing(partition) => self.state.writing_partition = Some(partition),
             Event::Progress(stage) => match install {
                 Install::Checking { stage: shown, .. }
                 | Install::Updating { stage: shown, .. }
@@ -7874,7 +7901,11 @@ mod tests {
         app.set_update(Standing::Merging(0.5));
         assert!(app.frame(&f, &i).hits.is_empty());
         app.set_update(Standing::Merged);
-        assert!(app.frame(&f, &i).hits.is_empty(), "merged, nothing is left to do here");
+        assert!(
+            app.frame(&f, &i).hits.iter().any(|h| h.action == Action::RebootTo(Target::System)),
+            "merged, the system can be started from here"
+        );
+        assert_eq!(tap(&mut app, &f, &i, Action::RebootTo(Target::System)), vec![Effect::Reboot(Target::System)]);
         app.key(Key::Back, 0);
         assert_eq!(app.screen(), Screen::Advanced);
         app.set_update(Standing::Installed(Slot::A));
@@ -11556,14 +11587,14 @@ mod tests {
         press(&mut app, Key::Power, 0);
         app.install(Event::Finished(Outcome::Installed { slot: Slot::A, wipe: false }), 100);
         assert!(app.display_on(), "the finished install lit the panel");
-        // A finger reaching for the phone lands on 重启到系统; within the
+        // A finger reaching for the phone lands on 重启到 recovery; within the
         // guard it only keeps the panel awake.
-        assert!(tap_at(&mut app, &f, &i, Action::RebootTo(Target::System), 200).is_empty());
+        assert!(tap_at(&mut app, &f, &i, Action::RebootTo(Target::Recovery), 200).is_empty());
         assert_eq!(app.screen(), Screen::Installing, "the stray tap did not reboot");
         // Past the guard the same tap reboots.
         assert_eq!(
-            tap_at(&mut app, &f, &i, Action::RebootTo(Target::System), 700),
-            vec![Effect::Reboot(Target::System)]
+            tap_at(&mut app, &f, &i, Action::RebootTo(Target::Recovery), 700),
+            vec![Effect::Reboot(Target::Recovery)]
         );
     }
 

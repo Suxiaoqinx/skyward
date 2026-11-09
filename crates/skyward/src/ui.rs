@@ -1314,8 +1314,9 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
     }
     // Once the work the system asked for is done, the page shows it for a
     // moment; then the phone starts the system, or powers off where the
-    // request says to.
-    let leave = if request.shutdown_after { Target::PowerOff } else { Target::System };
+    // request says to. An update that went in goes back to the recovery
+    // first, which merges it before the system starts.
+    let mut leave = if request.shutdown_after { Target::PowerOff } else { Target::System };
     let mut leave_at: Option<u64> = None;
     // The terminal page's shell, from when the page first asks for one.
     let mut shell: Option<pty::Shell> = None;
@@ -1331,11 +1332,35 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
     let mut merger: Option<merge::Merger> = None;
     if let Some(slot) = info.slot {
         let standing = skyward_vab::standing(slot)?;
-        if matches!(standing, Standing::Merging(_)) && skyward_vab::snapshots_mapped(slot)? {
-            skyward_sys::kmsg("the update's merge goes on")?;
-            merger = Some(merge::Merger::start(slot, false)?);
+        if let Standing::Merging(_) = &standing {
+            if skyward_vab::snapshots_mapped(slot)? {
+                skyward_sys::kmsg("the update's merge goes on")?;
+                merger = Some(merge::Merger::start(slot, false)?);
+            }
+            app.set_update(standing.clone());
+        } else if matches!(&standing, Standing::Waiting) {
+            // The update was written to the slot the recovery runs from, and
+            // its system has not started: merge it here, before the system
+            // does, so that the system starts from whole partitions.
+            skyward_sys::kmsg("the update is in this slot, and merges before the system starts")?;
+            match merge::Merger::start(slot, true) {
+                Ok(started) => {
+                    merger = Some(started);
+                    app.set_update(Standing::Merging(0.0));
+                    if first == Screen::Home {
+                        app.open_update();
+                    }
+                }
+                // The page says where the update stands, and merges it when
+                // asked, if it cannot merge here and now.
+                Err(e) => {
+                    let _ = skyward_sys::kmsg(&format!("the update waits, and did not merge: {e:#}"));
+                    app.set_update(standing);
+                }
+            }
+        } else {
+            app.set_update(standing);
         }
-        app.set_update(standing);
     }
     // The DNS servers the network joined gave, for looking names up.
     let servers: Servers = Arc::new(Mutex::new(Vec::new()));
@@ -1606,6 +1631,7 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
                 use skyward_install::{Event as Told, Outcome};
                 let finished = matches!(ev, Told::Finished(_));
                 let installed = matches!(ev, Told::Finished(Outcome::Installed { .. } | Outcome::Ran { .. }));
+                let update_installed = matches!(ev, Told::Finished(Outcome::Installed { .. }));
                 let wipe_after = matches!(ev, Told::Finished(Outcome::Installed { wipe: true, .. }));
                 let script_cache = matches!(ev, Told::Finished(Outcome::Ran { wipe_cache: true, .. }));
                 // A second system installed is read for the pages to show.
@@ -1631,6 +1657,11 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
                 }
                 app.install(ev, now);
                 if finished {
+                    // An update that went in is merged in the recovery it
+                    // goes back to, before the system starts.
+                    if update_installed {
+                        leave = Target::Recovery;
+                    }
                     installer = None;
                     sideloading = false;
                     // A sideload or an update the system asked for is done

@@ -699,6 +699,8 @@ fn battery() -> Result<Option<Refusal>> {
 enum Line {
     Status(Status),
     Log(Log),
+    /// A line to show on the screen as it was written.
+    Text(String),
 }
 
 /// Run update_engine on the package, telling the screen how far it is,
@@ -741,6 +743,7 @@ fn apply<S>(ctx: &Context, mount: &Mount<S>, update: &Update) -> Result<i32> {
             if let Some(l) = ota::log(line) {
                 let _ = tx.send(Line::Log(l));
             }
+            let _ = tx.send(Line::Text(ota::readable(line).to_string()));
             writeln!(log, "{line}")
         })
     });
@@ -755,21 +758,20 @@ fn apply<S>(ctx: &Context, mount: &Mount<S>, update: &Update) -> Result<i32> {
             Ok(Line::Status(Status::Step(step))) => finishing = step == 2,
             Ok(Line::Status(Status::Error(code))) => error = Some(code),
             Ok(Line::Log(Log::Partition(_))) => partitions += 1,
+            Ok(Line::Log(Log::Writing(partition))) => ctx.send(Event::Writing(partition)),
             Ok(Line::Log(Log::Overwriting)) => ctx.send(Event::Overwriting),
             Ok(Line::Log(Log::Hashing { index, partition })) => verifying = Some((index, partition)),
+            Ok(Line::Text(text)) => ctx.send(Event::Log(text)),
             Err(RecvTimeoutError::Timeout) => {}
             // Both outputs closed: the program has ended.
             Err(RecvTimeoutError::Disconnected) => break,
         }
-        let served = mount.served().saturating_sub(update.payload_offset).min(total);
-        let now = if finishing || (total > 0 && served >= total) {
-            // Everything the package holds has been read: what is left is
-            // written out and finished, which the screen cannot count.
+        let now = if finishing {
             Stage::Finishing
         } else if let Some((index, partition)) = &verifying {
             Stage::Verifying { index: *index, count: partitions.max(index + 1), partition: partition.clone() }
         } else {
-            Stage::Writing { done: served, total }
+            Stage::Writing { done: mount.served().saturating_sub(update.payload_offset).min(total), total }
         };
         let moved_on = std::mem::discriminant(&now) != std::mem::discriminant(&stage);
         if now != stage && (moved_on || told.elapsed() >= PROGRESS_EVERY) {
