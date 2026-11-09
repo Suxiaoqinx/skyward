@@ -827,6 +827,19 @@ mod tests {
     }
 
     #[test]
+    fn pandora_starts_the_programs_that_open_its_data_partition() {
+        let cfg = DeviceConfig::parse(include_str!("../../../devices/pandora.toml")).unwrap();
+        let find = |path: &str| cfg.services.iter().find(|s| s.path == path).unwrap_or_else(|| panic!("{path} is listed"));
+        let keymint = find("/vendor/bin/hw/android.hardware.security.onekeymint-service-qti");
+        assert_eq!(keymint.ready_service.as_deref(), Some("android.hardware.security.keymint.IKeyMintDevice/default"), "the service the decrypting thread opens");
+        assert_eq!(find("/vendor/bin/hw/android.hardware.gatekeeper-rust-service-qti").ready_service.as_deref(), Some("android.hardware.gatekeeper.IGatekeeper/default"));
+        assert!(find("/vendor/bin/qseecomd").ready_property.is_some(), "the listeners the key service waits on");
+        let weaver = find("/odm/bin/hw/android.hardware.weaver-service");
+        let leica: HashMap<String, String> = [("ro.special_edition".to_string(), "true".to_string())].into();
+        assert!(weaver.runs_on(&leica) && !weaver.runs_on(&HashMap::new()), "the weaver runs only where the build has one");
+    }
+
+    #[test]
     fn each_phone_names_the_stock_build_its_recovery_is_made_on() {
         for (text, version) in [
             (include_str!("../../../devices/nezha.toml"), "OS4.0.4.0.XPACNXM"),
