@@ -47,9 +47,9 @@ const BLKROSET: libc::c_ulong = 0x125d;
 fn open_for_writing(path: &Path) -> Result<File> {
     let file = OpenOptions::new().read(true).write(true).open(path).with_context(|| format!("open {}", path.display()))?;
     let mut read_only: libc::c_int = 0;
-    if unsafe { libc::ioctl(file.as_raw_fd(), BLKROGET, &mut read_only as *mut libc::c_int) } == 0 && read_only != 0 {
+    if unsafe { libc::ioctl(file.as_raw_fd(), BLKROGET as libc::Ioctl, &mut read_only as *mut libc::c_int) } == 0 && read_only != 0 {
         let writable: libc::c_int = 0;
-        if unsafe { libc::ioctl(file.as_raw_fd(), BLKROSET, &writable as *const libc::c_int) } != 0 {
+        if unsafe { libc::ioctl(file.as_raw_fd(), BLKROSET as libc::Ioctl, &writable as *const libc::c_int) } != 0 {
             return Err(io::Error::last_os_error()).with_context(|| format!("open {} for writing", path.display()));
         }
         let _ = skyward_sys::kmsg(&format!("install: {} was read-only, and is open for writing now", path.display()));
