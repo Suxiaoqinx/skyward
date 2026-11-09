@@ -565,7 +565,10 @@ extern "C" fn channel_transact(binder: *mut Binder, code: Code, input: *const Pa
             write_bytes(output, select.as_deref())
         }
         5 => {
-            let data = read_bytes(input).unwrap_or_default();
+            let mut data = read_bytes(input).unwrap_or_default();
+            if let Some(cla) = data.as_mut().and_then(|apdu| apdu.first_mut()) {
+                *cla = with_channel(*cla, channel.number);
+            }
             let reply = element().and_then(|hal| hal.transmit(data.as_deref())).unwrap_or_default();
             let status = through(output);
             if status != OK {
@@ -631,6 +634,23 @@ fn vendor(binder: *mut Binder) -> *mut Binder {
         unsafe { (api().vendor_stability)(binder) };
     }
     binder
+}
+
+/// `cla` with the channel's number in the bits that carry it, as Android's
+/// OMAPI service sets it before it sends an APDU: the card is told which
+/// channel a command belongs to there, and answering nothing to a command
+/// for a channel on which nothing is selected is what a timeout is.
+fn with_channel(cla: u8, channel: u8) -> u8 {
+    if channel < 4 {
+        (cla & 0xBC) | channel
+    } else {
+        let secure_messaging = cla & 0x0C != 0;
+        let mut cla = (cla & 0xB0) | 0x40 | (channel - 4);
+        if secure_messaging {
+            cla |= 0x20;
+        }
+        cla
+    }
 }
 
 fn close_channels(session: &Session) {

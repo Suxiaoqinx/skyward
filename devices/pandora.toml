@@ -16,8 +16,10 @@ density = 520
 sources = ["vendor_boot", "vendor_dlkm", "vendor", "system_dlkm"]
 # The touchscreen comes from two makers: Synaptics TouchComm and FocalTech,
 # both behind Xiaomi's touch layer. The phone's own modules.load lists both
-# drivers, and only the one whose controller is fitted finds it.
-load = ["synaptics_tcm2", "focaltech_touch"]
+# drivers, and only the one whose controller is fitted finds it. The NFC
+# controller's driver makes the node the phone's NFC HAL talks to the
+# secure element through, which the phone's own init loads before it.
+load = ["synaptics_tcm2", "focaltech_touch", "nxp-nci"]
 
 # As on the 17 Ultra, the controller comes back from its reset sending raw
 # frames for /odm/lib64/libtouchreport.so, which a recovery runs none of;
@@ -109,7 +111,8 @@ groups = ["system"]
 
 # The secure element: the phone's embedded one, which its own programs
 # reach through the HAL its vendor partition carries. The weaver's slots are
-# in it, so it runs before the weaver.
+# in it, so it runs before the weaver. It reaches the chip through the node
+# the NFC controller's driver makes, so that module is loaded first.
 [[service]]
 path = "/vendor/bin/hw/android.hardware.secure_element-service.qti"
 libraries = ["/system/lib64", "/vendor/lib64", "/vendor/lib64/hw", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
