@@ -420,7 +420,7 @@ extern "C" fn service_transact(_binder: *mut Binder, code: Code, input: *const P
             if status != OK {
                 return status;
             }
-            give(output, reader)
+            give(output, vendor(reader))
         }
         3 => {
             let status = through(output);
