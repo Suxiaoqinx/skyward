@@ -107,32 +107,17 @@ ready_service = "android.hardware.gatekeeper.IGatekeeper/default"
 user = "system"
 groups = ["system"]
 
-# The weaver, in the secure element of the builds whose odm properties set
-# ro.special_edition: Goodix's, behind its own service, which reaches it
-# through the secure world. Every user's secret is bound to a slot of it,
-# with a screen lock or without. Both programs load the vendor partition's
-# libhardware, which asks for the installed system's libvndksupport, and
-# that for its libdl_android, of which only the copy in bootstrap is a file
-# rather than a link into a bundle; the installed system's libraries come
-# last, so only these two are taken from them.
+# The weaver, in the phone's NXP secure element, behind the program the
+# installed system's init enables as vendor.weaver_nxp and runs as the
+# account the odm partition's passwd names. Every user's secret is bound to
+# a slot of it, with a screen lock or without, so without it none of the
+# users' own files open.
 [[service]]
-path = "/odm/bin/hw/android.hardware.secure_element-service-goodix"
-libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
-ready_service = "android.hardware.secure_element.ISecureElement/eSE2"
-registers = ["vendor.goodix.hardware.secure_element_aidl.IGdxEse/default"]
-description = "/odm/etc/secure_element-service-goodixsp.xml"
-when = { property = "ro.special_edition", value = "true" }
-user = "system"
-groups = ["system"]
-
-[[service]]
-path = "/odm/bin/hw/android.hardware.weaver-service"
-libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+path = "/odm/bin/hw/android.hardware.weaver-service.nxp-qti"
+libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64"]
 ready_service = "android.hardware.weaver.IWeaver/default"
-when = { property = "ro.special_edition", value = "true" }
-user = "system"
-groups = ["system", "drmrpc"]
-capabilities = ["WAKE_ALARM"]
+user = "vendor_nxp_weaver"
+groups = ["vendor_nxp_weaver"]
 
 # WLAN: Qualcomm's Peach on PCIe (qcom,cnss-peach in its dtbo), as on the
 # 17 Ultra, whose vendor partition this phone shares file for file but for

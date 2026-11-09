@@ -332,12 +332,15 @@ fn say_framework(dir: &Path) -> Result<usize> {
 }
 
 /// Whether a description is of the service registered under `name`, which
-/// reads as the interface and then the instance: the description names the
-/// two separately.
+/// reads as the interface and then the instance: a description writes the
+/// two together as `IWeaver/default`, or apart as `<name>IWeaver</name>`
+/// and `<instance>default</instance>`.
 fn describes(text: &str, name: &str) -> bool {
     let Some((interface, instance)) = name.rsplit_once('/') else { return false };
     let Some((package, interface)) = interface.rsplit_once('.') else { return false };
-    text.contains(package) && text.contains(&format!("{interface}/{instance}"))
+    text.contains(package)
+        && (text.contains(&format!("{interface}/{instance}"))
+            || (text.contains(&format!(">{interface}<")) && text.contains(&format!(">{instance}<"))))
 }
 
 /// Wait until the service directory is a new process and takes calls
