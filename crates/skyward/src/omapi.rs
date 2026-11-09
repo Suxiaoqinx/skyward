@@ -74,6 +74,7 @@ struct Api {
     write_array: unsafe extern "C" fn(*mut Parcel, *const i8, i32) -> Status,
     read_array: unsafe extern "C" fn(*const Parcel, *mut c_void, ArrayAllocator) -> Status,
     write_binder: unsafe extern "C" fn(*mut Parcel, *mut Binder) -> Status,
+    vendor_stability: unsafe extern "C" fn(*mut Binder),
 }
 
 /// The classes the phone's binder library knows this process's objects by.
@@ -103,6 +104,10 @@ pub fn serve() -> Result<()> {
     if service.is_null() {
         bail!("make the OMAPI service");
     }
+    // The phone's weaver is a vendor program, and a vendor program may only
+    // call a service marked vendor: what this process makes is marked system
+    // unless told otherwise.
+    unsafe { (api.vendor_stability)(service) };
     let name = CString::new(SERVICE)?;
     let status = unsafe { (api.add_service)(service, name.as_ptr()) };
     if status != OK {
@@ -150,6 +155,7 @@ impl Api {
                 write_array: symbol(library, "AParcel_writeByteArray")?,
                 read_array: symbol(library, "AParcel_readByteArray")?,
                 write_binder: symbol(library, "AParcel_writeStrongBinder")?,
+                vendor_stability: symbol(library, "AIBinder_forceDowngradeToVendorStability")?,
             })
         }
     }
@@ -264,6 +270,7 @@ fn start_element() -> Result<Hal> {
     if callback.is_null() {
         bail!("make the secure element's callback");
     }
+    let callback = vendor(callback);
     let hal = Hal { element, _callback: callback };
     let _ = hal.call(3, |parcel| unsafe { (api.write_binder)(parcel, callback) })?;
     Ok(hal)
@@ -422,7 +429,7 @@ extern "C" fn reader_transact(_binder: *mut Binder, code: Code, _input: *const P
             if binder.is_null() {
                 unsafe { drop(Box::from_raw(session)) };
             }
-            give(output, binder)
+            give(output, vendor(binder))
         }
         3 => OK,
         4 => match element().and_then(|hal| hal.reset()) {
@@ -514,7 +521,17 @@ fn make_channel(output: *mut Parcel, number: u8, basic: bool, select: Option<Vec
     if binder.is_null() {
         unsafe { drop(Box::from_raw(channel)) };
     }
-    give(output, binder)
+    give(output, vendor(binder))
+}
+
+/// Mark a binder this process made as one a vendor program may call: what
+/// it makes is marked system until told otherwise, and the phone's weaver,
+/// which is a vendor program, is refused a system one.
+fn vendor(binder: *mut Binder) -> *mut Binder {
+    if !binder.is_null() {
+        unsafe { (api().vendor_stability)(binder) };
+    }
+    binder
 }
 
 fn close_channels(session: &Session) {
