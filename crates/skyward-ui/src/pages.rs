@@ -3202,7 +3202,13 @@ pub fn row(screen: Screen, cx: &Ctx, i: usize, c: &mut Canvas) {
             let entries = folder.entries.as_ref().expect("a folder listed draws its rows");
             files::row(c, cx.t, cx.f, cx.state.lang, &entries[i], folder.listed, cx.state.time_zone);
         }
-        Screen::Installing => widgets::output_row(c, cx.t, cx.f, &cx.state.script_output, i),
+        Screen::Installing => {
+            let lines = match &cx.state.install {
+                Install::Updating { .. } => &cx.state.engine_output,
+                _ => &cx.state.script_output,
+            };
+            widgets::output_row(c, cx.t, cx.f, lines, i);
+        }
         Screen::PartWork => {
             let work = cx.state.part_work.as_ref().expect("the page of partition work shows work");
             widgets::output_row(c, cx.t, cx.f, &work.output, i)
