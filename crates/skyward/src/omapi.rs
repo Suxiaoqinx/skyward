@@ -94,10 +94,10 @@ static CLASSES: OnceLock<Classes> = OnceLock::new();
 static HAL: OnceLock<std::result::Result<Hal, String>> = OnceLock::new();
 
 pub fn serve() -> Result<()> {
-    let api = Api::load().context("open the phone's own binder library")?;
-    let classes = Classes::define(&api)?;
-    let _ = API.set(api);
-    let _ = CLASSES.set(classes);
+    let loaded = Api::load().context("open the phone's own binder library")?;
+    let defined = Classes::define(&loaded)?;
+    let _ = API.set(loaded);
+    let _ = CLASSES.set(defined);
     let api = api();
     let service = unsafe { (api.new_binder)(classes().service, null_mut()) };
     if service.is_null() {
