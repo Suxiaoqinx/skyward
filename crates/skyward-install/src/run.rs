@@ -699,8 +699,6 @@ fn battery() -> Result<Option<Refusal>> {
 enum Line {
     Status(Status),
     Log(Log),
-    /// A line to show on the screen as it was written.
-    Text(String),
 }
 
 /// Run update_engine on the package, telling the screen how far it is,
@@ -743,7 +741,6 @@ fn apply<S>(ctx: &Context, mount: &Mount<S>, update: &Update) -> Result<i32> {
             if let Some(l) = ota::log(line) {
                 let _ = tx.send(Line::Log(l));
             }
-            let _ = tx.send(Line::Text(ota::readable(line).to_string()));
             writeln!(log, "{line}")
         })
     });
@@ -761,7 +758,6 @@ fn apply<S>(ctx: &Context, mount: &Mount<S>, update: &Update) -> Result<i32> {
             Ok(Line::Log(Log::Writing(partition))) => ctx.send(Event::Writing(partition)),
             Ok(Line::Log(Log::Overwriting)) => ctx.send(Event::Overwriting),
             Ok(Line::Log(Log::Hashing { index, partition })) => verifying = Some((index, partition)),
-            Ok(Line::Text(text)) => ctx.send(Event::Log(text)),
             Err(RecvTimeoutError::Timeout) => {}
             // Both outputs closed: the program has ended.
             Err(RecvTimeoutError::Disconnected) => break,

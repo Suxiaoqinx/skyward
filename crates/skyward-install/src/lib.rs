@@ -106,8 +106,6 @@ pub enum Event {
     Running,
     /// A line the install script shows.
     Print(String),
-    /// A line update_engine wrote, for the screen to show while it works.
-    Log(String),
     /// The partition update_engine writes now.
     Writing(String),
     Progress(Stage),

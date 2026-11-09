@@ -67,15 +67,6 @@ pub fn log(line: &str) -> Option<Log> {
     Some(Log::Hashing { index: index.parse().ok()?, partition: name.to_string() })
 }
 
-/// A line as the screen shows it: without the level, file and line number
-/// update_engine opens it with.
-pub fn readable(line: &str) -> &str {
-    match line.strip_prefix('[').and_then(|rest| rest.split_once("] ")) {
-        Some((_, text)) => text,
-        None => line,
-    }
-}
-
 fn after<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
     line.find(marker).map(|at| &line[at + marker.len()..])
 }
@@ -177,15 +168,6 @@ mod tests {
         );
         assert_eq!(log("[INFO:delta_performer.cc(267)] PartitionInfo old odm sha256: 00 size: 4"), None);
         assert_eq!(log("[INFO:delta_performer.cc(108)] Completed 10/400 operations (2%)"), None);
-    }
-
-    #[test]
-    fn a_line_shown_drops_the_level_and_the_files_it_names() {
-        assert_eq!(
-            readable("[INFO:partition_writer.cc(183)] Applying 12 operations to partition \"system\""),
-            "Applying 12 operations to partition \"system\""
-        );
-        assert_eq!(readable("no prefix"), "no prefix");
     }
 
     #[test]

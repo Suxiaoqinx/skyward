@@ -1612,8 +1612,6 @@ pub struct State {
     pub package_name: Option<String>,
     /// What the install script last run showed, its latest lines.
     pub script_output: Vec<String>,
-    /// What update_engine last said, its latest lines.
-    pub engine_output: Vec<String>,
     /// The partition update_engine writes now.
     pub writing_partition: Option<String>,
     /// A zip's install script runs only if the zip was signed with one of
@@ -1779,7 +1777,6 @@ impl Default for State {
             source: Source::Computer,
             package_name: None,
             script_output: Vec::new(),
-            engine_output: Vec::new(),
             writing_partition: None,
             check_signature: false,
             recovery_partitions: false,
@@ -2231,9 +2228,6 @@ const BEHIND_DIM: f32 = 0.47;
 /// The most lines of what an install script shows that its page keeps,
 /// the latest; the log keeps them all.
 const SCRIPT_LINES: usize = 500;
-/// The most lines of what update_engine says that the installing page
-/// keeps, the latest.
-const ENGINE_LINES: usize = 12;
 /// How long a finger rests on an entry before it counts as held, as the
 /// system's long press does.
 const LONG_PRESS_MS: u64 = 400;
@@ -3812,7 +3806,6 @@ impl App {
         let s = &mut self.state;
         (s.install, s.source, s.package_name) = (install, source, name);
         s.script_output.clear();
-        s.engine_output.clear();
         s.writing_partition = None;
         s.reflash = None;
     }
@@ -5042,13 +5035,6 @@ impl App {
                     shown.remove(0);
                 }
                 shown.push(line);
-            }
-            Event::Log(line) => {
-                let shown = &mut self.state.engine_output;
-                if shown.len() == ENGINE_LINES {
-                    shown.remove(0);
-                }
-                shown.push(line.chars().take(160).collect());
             }
             Event::Writing(partition) => self.state.writing_partition = Some(partition),
             Event::Progress(stage) => match install {

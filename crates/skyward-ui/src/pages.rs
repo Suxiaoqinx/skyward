@@ -513,7 +513,7 @@ pub fn mount(cx: &Ctx) -> Frame {
 }
 
 /// Who made the recovery, as the About page names them under its version.
-const AUTHOR: &str = "© 2026 Kirk Lin";
+const AUTHOR: &str = "© 2026 Kirk Lin & Suxiaoqinx";
 
 /// About this device, modelled on the stock「我的设备」: the wordmark, the
 /// version and its author over a moving colour field, and the summary,
@@ -1084,18 +1084,6 @@ fn script_output(c: &mut Canvas, cx: &Ctx, y: f32, rows: &mut Option<Rows>) -> f
     y
 }
 
-/// What update_engine last said, where it said anything: its latest lines
-/// under a heading, the last thing on the page.
-fn engine_output(c: &mut Canvas, cx: &Ctx, y: f32, rows: &mut Option<Rows>) -> f32 {
-    let lines = &cx.state.engine_output;
-    if lines.is_empty() {
-        return y;
-    }
-    let y = widgets::section(c, cx.t, cx.f, y, cx.state.lang.pick(["刷入日志", "刷入日誌", "Install log"]));
-    *rows = Some(Rows { edges: widgets::output_edges(c, cx.t, cx.f, y, lines), action: None });
-    y
-}
-
 fn pick_title(l: Lang, pick: Pick, current: Option<Slot>) -> String {
     let letter = |s: Option<Slot>| s.map(|s| format!(" {}", s.letter())).unwrap_or_default();
     match pick {
@@ -1314,7 +1302,7 @@ pub fn installing(cx: &Ctx) -> Frame {
                 None => until.to_string(),
             };
             let y = widgets::footnote(&mut c, t, f, y, &note);
-            let y = if *overwriting {
+            if *overwriting {
                 let note = l.pick([
                     "正在覆盖当前系统，安装完成前重启将无法进入系统。",
                     "正在覆寫目前的系統，安裝完成前重新啟動將無法進入系統。",
@@ -1323,8 +1311,7 @@ pub fn installing(cx: &Ctx) -> Frame {
                 widgets::footnote(&mut c, t, f, y, note)
             } else {
                 y
-            };
-            engine_output(&mut c, cx, y, &mut rows)
+            }
         }
         Install::Flashing { partition, stage } => {
             let (detail, done) = match stage {
@@ -3202,13 +3189,7 @@ pub fn row(screen: Screen, cx: &Ctx, i: usize, c: &mut Canvas) {
             let entries = folder.entries.as_ref().expect("a folder listed draws its rows");
             files::row(c, cx.t, cx.f, cx.state.lang, &entries[i], folder.listed, cx.state.time_zone);
         }
-        Screen::Installing => {
-            let lines = match &cx.state.install {
-                Install::Updating { .. } => &cx.state.engine_output,
-                _ => &cx.state.script_output,
-            };
-            widgets::output_row(c, cx.t, cx.f, lines, i);
-        }
+        Screen::Installing => widgets::output_row(c, cx.t, cx.f, &cx.state.script_output, i),
         Screen::PartWork => {
             let work = cx.state.part_work.as_ref().expect("the page of partition work shows work");
             widgets::output_row(c, cx.t, cx.f, &work.output, i)
@@ -3569,7 +3550,7 @@ const LICENSE_NOTICE: [&str; 2] = [
 發布 Skyward 是希望它有用，但不附帶任何擔保，也不擔保其適銷性或適用於特定用途。詳見 GNU 通用公眾授權條款。",
 ];
 
-const LICENSE_ORIGINAL: &str = "Skyward\nCopyright (C) 2026 Kirk Lin\n\n\
+const LICENSE_ORIGINAL: &str = "Skyward\nCopyright (C) 2026 Kirk Lin & Suxiaoqinx\n\n\
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.\n\n\
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.\n\n\
 You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.";
