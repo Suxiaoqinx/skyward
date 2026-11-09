@@ -141,6 +141,16 @@ path = "/odm/bin/hw/android.hardware.weaver-service.nxp-qti"
 libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
 ready_service = "android.hardware.weaver.IWeaver/default"
 
+# The boot control, which says which slot the bootloader starts next and
+# switches it, writing where the bootloader reads it. It comes last: the
+# phone is usable without it.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.boot-service.qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_service = "android.hardware.boot.IBootControl/default"
+user = "root"
+groups = ["root"]
+
 # WLAN: Qualcomm's Peach on PCIe (qcom,cnss-peach in its dtbo), as on the
 # 17 Ultra, whose vendor partition this phone shares file for file but for
 # its build properties, a power hint and two radio libraries.
