@@ -26,6 +26,9 @@ type Code = u32;
 const OK: Status = 0;
 const UNKNOWN_TRANSACTION: Status = -2;
 
+/// What every AIDL reply opens with when the call went through.
+const NO_EXCEPTION: i32 = 0;
+
 #[repr(C)]
 struct Class {
     _private: [u8; 0],
@@ -393,6 +396,10 @@ extern "C" fn service_transact(_binder: *mut Binder, code: Code, input: *const P
     let api = api();
     match code {
         1 => {
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
             let status = unsafe { (api.write_i32)(output, 1) };
             if status == OK {
                 write_text(output, READER)
@@ -409,9 +416,21 @@ extern "C" fn service_transact(_binder: *mut Binder, code: Code, input: *const P
                 Some(name) if name == READER => unsafe { (api.new_binder)(classes().reader, null_mut()) },
                 _ => null_mut(),
             };
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
             give(output, reader)
         }
-        3 => unsafe { (api.write_i32)(output, 0) },
+        3 => {
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            // A recovery offers no applet events to any package: no packages
+            // are allowed, which is a missing list rather than an empty one.
+            unsafe { (api.write_i32)(output, -1) }
+        }
         _ => UNKNOWN_TRANSACTION,
     }
 }
@@ -421,6 +440,10 @@ extern "C" fn reader_transact(_binder: *mut Binder, code: Code, _input: *const P
     match code {
         1 => {
             let present = element().and_then(|hal| hal.is_card_present()).unwrap_or(false);
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
             unsafe { (api.write_bool)(output, present) }
         }
         2 => {
@@ -429,13 +452,21 @@ extern "C" fn reader_transact(_binder: *mut Binder, code: Code, _input: *const P
             if binder.is_null() {
                 unsafe { drop(Box::from_raw(session)) };
             }
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
             give(output, vendor(binder))
         }
-        3 => OK,
-        4 => match element().and_then(|hal| hal.reset()) {
-            Ok(()) => unsafe { (api.write_bool)(output, true) },
-            Err(_) => unsafe { (api.write_bool)(output, false) },
-        },
+        3 => through(output),
+        4 => {
+            let reset = element().and_then(|hal| hal.reset()).is_ok();
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            unsafe { (api.write_bool)(output, reset) }
+        }
         _ => UNKNOWN_TRANSACTION,
     }
 }
@@ -448,28 +479,40 @@ extern "C" fn session_transact(binder: *mut Binder, code: Code, input: *const Pa
     }
     let session = unsafe { &*state };
     match code {
-        1 => match element().and_then(|hal| hal.get_atr()) {
-            Ok(atr) => write_bytes(output, atr.as_deref()),
-            Err(_) => write_bytes(output, None),
-        },
+        1 => {
+            let atr = element().and_then(|hal| hal.get_atr()).unwrap_or_default();
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            write_bytes(output, atr.as_deref())
+        }
         2 | 3 => {
             close_channels(session);
-            OK
+            through(output)
         }
-        4 => unsafe { (api.write_bool)(output, session.closed.load(Ordering::SeqCst)) },
+        4 => {
+            let closed = session.closed.load(Ordering::SeqCst);
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            unsafe { (api.write_bool)(output, closed) }
+        }
         5 | 6 => {
             let aid = read_bytes(input).unwrap_or_default();
             let p2 = read_byte(input);
-            if code == 5 {
-                match element().and_then(|hal| hal.open_basic(aid.as_deref(), p2)) {
-                    Ok(select) => make_channel(output, 0, true, select),
-                    Err(_) => give(output, null_mut()),
-                }
-            } else {
-                match element().and_then(|hal| hal.open_logical(aid.as_deref(), p2)) {
-                    Ok((number, select)) => make_channel(output, number, false, select),
-                    Err(_) => give(output, null_mut()),
-                }
+            let opened = match code {
+                5 => element().and_then(|hal| hal.open_basic(aid.as_deref(), p2)).map(|select| (0, true, select)),
+                _ => element().and_then(|hal| hal.open_logical(aid.as_deref(), p2)).map(|(number, select)| (number, false, select)),
+            };
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            match opened {
+                Ok((number, basic, select)) => make_channel(output, number, basic, select),
+                Err(_) => give(output, null_mut()),
             }
         }
         _ => UNKNOWN_TRANSACTION,
@@ -488,25 +531,54 @@ extern "C" fn channel_transact(binder: *mut Binder, code: Code, input: *const Pa
             if !channel.closed.swap(true, Ordering::SeqCst) {
                 let _ = element().and_then(|hal| hal.close_channel(channel.number));
             }
-            OK
+            through(output)
         }
-        2 => unsafe { (api.write_bool)(output, channel.closed.load(Ordering::SeqCst)) },
-        3 => unsafe { (api.write_bool)(output, channel.basic) },
-        4 => write_bytes(output, channel.select.as_deref()),
+        2 => {
+            let closed = channel.closed.load(Ordering::SeqCst);
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            unsafe { (api.write_bool)(output, closed) }
+        }
+        3 => {
+            let basic = channel.basic;
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            unsafe { (api.write_bool)(output, basic) }
+        }
+        4 => {
+            let select = channel.select.clone();
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            write_bytes(output, select.as_deref())
+        }
         5 => {
             let data = read_bytes(input).unwrap_or_default();
-            match element().and_then(|hal| hal.transmit(data.as_deref())) {
-                Ok(reply) => write_bytes(output, reply.as_deref()),
-                Err(_) => write_bytes(output, None),
+            let reply = element().and_then(|hal| hal.transmit(data.as_deref())).unwrap_or_default();
+            let status = through(output);
+            if status != OK {
+                return status;
             }
+            write_bytes(output, reply.as_deref())
         }
-        6 => unsafe { (api.write_bool)(output, false) },
+        6 => {
+            let status = through(output);
+            if status != OK {
+                return status;
+            }
+            unsafe { (api.write_bool)(output, false) }
+        }
         _ => UNKNOWN_TRANSACTION,
     }
 }
 
-extern "C" fn callback_transact(_binder: *mut Binder, _code: Code, _input: *const Parcel, _output: *mut Parcel) -> Status {
-    OK
+extern "C" fn callback_transact(_binder: *mut Binder, _code: Code, _input: *const Parcel, output: *mut Parcel) -> Status {
+    through(output)
 }
 
 /// The class of the secure element itself is only used to name the
@@ -522,6 +594,12 @@ fn make_channel(output: *mut Parcel, number: u8, basic: bool, select: Option<Vec
         unsafe { drop(Box::from_raw(channel)) };
     }
     give(output, vendor(binder))
+}
+
+/// Open a reply with the mark that says the call went through: every AIDL
+/// reply starts with it, and a client reads what follows as that mark.
+fn through(output: *mut Parcel) -> Status {
+    unsafe { (api().write_i32)(output, NO_EXCEPTION) }
 }
 
 /// Mark a binder this process made as one a vendor program may call: what
