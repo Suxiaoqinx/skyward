@@ -17,6 +17,10 @@ pub mod ramdisk {
     pub const MONO_LICENSE: &str = "skyward/KirkMono-OFL.txt";
     /// The recovery service binary init starts.
     pub const RECOVERY: &str = "system/bin/recovery";
+    /// The same program under a name that runs the command it is given
+    /// rather than the recovery service, for programs the recovery starts
+    /// itself, such as the service a phone's weaver asks through.
+    pub const CLI: &str = "system/bin/skyward";
     /// The first program of a system installed beside the installed one,
     /// which Skyward puts in that system's init_boot image: linked
     /// statically, since it runs before any system's libraries are there.
@@ -619,6 +623,7 @@ mod tests {
         for command in ramdisk::COMMANDS {
             assert_eq!(folder(command), folder(ramdisk::RECOVERY), "{command}");
         }
+        assert_eq!(folder(ramdisk::CLI), folder(ramdisk::RECOVERY), "the command reader sits beside the recovery service");
     }
 
     #[test]
@@ -834,10 +839,21 @@ mod tests {
         assert_eq!(keymint.ready_service.as_deref(), Some("android.hardware.security.keymint.IKeyMintDevice/default"), "the service the decrypting thread opens");
         assert_eq!(find("/vendor/bin/hw/android.hardware.gatekeeper-rust-service-qti").ready_service.as_deref(), Some("android.hardware.gatekeeper.IGatekeeper/default"));
         assert!(find("/vendor/bin/qseecomd").ready_property.is_some(), "the listeners the key service waits on");
+        let element = find("/vendor/bin/hw/android.hardware.secure_element-service.qti");
+        assert_eq!(element.ready_service.as_deref(), Some("android.hardware.secure_element.ISecureElement/eSE1"), "the secure element the weaver's slots are in");
+        assert!(element.libraries.iter().any(|l| l == "/vendor/lib64/hw"), "the libraries its own HAL is in");
+        let omapi = find("/system/bin/skyward");
+        assert_eq!(omapi.args, ["omapi"], "the recovery's own program as the command that serves OMAPI");
+        assert_eq!(omapi.ready_service.as_deref(), Some("android.se.omapi.ISecureElementService/default"));
         let weaver = find("/odm/bin/hw/android.hardware.weaver-service.nxp-qti");
         assert_eq!(weaver.ready_service.as_deref(), Some("android.hardware.weaver.IWeaver/default"), "the slot every user's secret is bound to");
-        assert_eq!((weaver.user.as_deref(), &weaver.groups[..]), (Some("vendor_nxp_weaver"), &["vendor_nxp_weaver".to_string()][..]), "as the odm partition's init runs it");
         assert!(weaver.when.is_none(), "this phone has the secure element the program serves");
+        let position = |path: &str| cfg.services.iter().position(|s| s.path == path).expect("listed");
+        assert!(
+            position("/vendor/bin/hw/android.hardware.secure_element-service.qti") < position("/system/bin/skyward")
+                && position("/system/bin/skyward") < position("/odm/bin/hw/android.hardware.weaver-service.nxp-qti"),
+            "the weaver starts after what it asks through"
+        );
     }
 
     #[test]

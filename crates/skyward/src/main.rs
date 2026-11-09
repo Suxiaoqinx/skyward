@@ -18,6 +18,8 @@ mod input;
 #[cfg(target_os = "android")]
 mod merge;
 #[cfg(target_os = "android")]
+mod omapi;
+#[cfg(target_os = "android")]
 mod partwork;
 #[cfg(target_os = "android")]
 mod pty;
@@ -177,6 +179,10 @@ enum Cmd {
     /// changes nothing.
     #[cfg(target_os = "android")]
     Weaver,
+    /// Serve the service the phone's weaver asks the secure element through,
+    /// which Android keeps in its framework.
+    #[cfg(target_os = "android")]
+    Omapi,
     /// Open the data partition with the key the phone keeps for it, check
     /// it and mount it writable as the phone does, and open each user's
     /// files that open; the owner's shared storage then shows at /sdcard.
@@ -376,6 +382,8 @@ fn main() -> Result<()> {
             println!("the weaver has {} slots, keeps keys of {} bytes and values of {} bytes", c.slots, c.key_bytes, c.value_bytes);
             Ok(())
         }
+        #[cfg(target_os = "android")]
+        Cmd::Omapi => omapi::serve(),
         #[cfg(target_os = "android")]
         Cmd::Data { close: true, .. } => {
             wipe::release_data()?;

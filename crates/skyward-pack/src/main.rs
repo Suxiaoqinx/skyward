@@ -124,6 +124,9 @@ fn main() -> Result<()> {
             for command in paths::COMMANDS {
                 rd.link(command, recovery)?;
             }
+            // The same program answers a command it is started as, which is
+            // how the recovery runs the service its weaver asks through.
+            rd.link(paths::CLI, recovery)?;
             rd.add(paths::SYSTEM_INIT, 0o755, read(&system_init)?)?;
             rd.add(paths::CONFIG, 0o644, read(&config)?)?;
             rd.add(paths::FONT, 0o644, read(&font)?)?;

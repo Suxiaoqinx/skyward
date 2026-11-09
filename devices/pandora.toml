@@ -107,17 +107,36 @@ ready_service = "android.hardware.gatekeeper.IGatekeeper/default"
 user = "system"
 groups = ["system"]
 
+# The secure element: the phone's embedded one, which its own programs
+# reach through the HAL its vendor partition carries. The weaver's slots are
+# in it, so it runs before the weaver.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.secure_element-service.qti"
+libraries = ["/system/lib64", "/vendor/lib64", "/vendor/lib64/hw", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+ready_service = "android.hardware.secure_element.ISecureElement/eSE1"
+user = "system"
+groups = ["nfc", "system"]
+
+# The service the weaver asks the secure element's applets through. Android
+# keeps it in its framework, which a recovery runs none of, so Skyward
+# serves it: the same program, under the name that runs a command instead
+# of the recovery, over that secure element HAL.
+[[service]]
+path = "/system/bin/skyward"
+args = ["omapi"]
+libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+ready_service = "android.se.omapi.ISecureElementService/default"
+
 # The weaver, in the phone's NXP secure element, behind the program the
-# installed system's init enables as vendor.weaver_nxp and runs as the
-# account the odm partition's passwd names. Every user's secret is bound to
-# a slot of it, with a screen lock or without, so without it none of the
-# users' own files open.
+# installed system's init enables as vendor.weaver_nxp. Every user's secret
+# is bound to a slot of it, with a screen lock or without, so without it
+# none of the users' own files open. It runs as root: its own libraries ask
+# for the installed system's libvndksupport, which the linker only searches
+# for a program that does not change its user.
 [[service]]
 path = "/odm/bin/hw/android.hardware.weaver-service.nxp-qti"
-libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64"]
+libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
 ready_service = "android.hardware.weaver.IWeaver/default"
-user = "vendor_nxp_weaver"
-groups = ["vendor_nxp_weaver"]
 
 # WLAN: Qualcomm's Peach on PCIe (qcom,cnss-peach in its dtbo), as on the
 # 17 Ultra, whose vendor partition this phone shares file for file but for
