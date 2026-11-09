@@ -8,8 +8,9 @@ use abootimg_oxide::{Header, VendorHeader};
 use anyhow::{bail, ensure, Context, Result};
 use sha2::{Digest, Sha256};
 use skyward_vab::Slot;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 const BOOT_MAGIC: &[u8] = b"ANDROID!";
@@ -34,6 +35,27 @@ const FOOTER_MAGIC: &[u8] = b"AVBf";
 const FOOTER_LEN: u64 = 64;
 
 const CHUNK: usize = 1 << 20;
+
+/// The kernel's block device read-only flag: update_engine leaves a
+/// partition it reads back for verification read-only, and writing one
+/// then is refused.
+const BLKROGET: libc::c_ulong = 0x125e;
+const BLKROSET: libc::c_ulong = 0x125d;
+
+/// Open `path` for writing, letting the kernel write the partition it
+/// holds read-only, as update_engine does before it writes a partition.
+fn open_for_writing(path: &Path) -> Result<File> {
+    let file = OpenOptions::new().read(true).write(true).open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut read_only: libc::c_int = 0;
+    if unsafe { libc::ioctl(file.as_raw_fd(), BLKROGET, &mut read_only as *mut libc::c_int) } == 0 && read_only != 0 {
+        let writable: libc::c_int = 0;
+        if unsafe { libc::ioctl(file.as_raw_fd(), BLKROSET, &writable as *const libc::c_int) } != 0 {
+            return Err(io::Error::last_os_error()).with_context(|| format!("open {} for writing", path.display()));
+        }
+        let _ = skyward_sys::kmsg(&format!("install: {} was read-only, and is open for writing now", path.display()));
+    }
+    Ok(file)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageKind {
@@ -204,7 +226,7 @@ pub fn flash<R: Read + Seek>(image: &mut R, len: u64, devices: &[PathBuf], progr
     ensure!(!devices.is_empty(), "no partition to write");
     let mut outs = Vec::with_capacity(devices.len());
     for path in devices {
-        let mut f = OpenOptions::new().read(true).write(true).open(path).with_context(|| format!("open {}", path.display()))?;
+        let mut f = open_for_writing(path)?;
         let size = f.seek(SeekFrom::End(0)).with_context(|| format!("find the size of {}", path.display()))?;
         f.seek(SeekFrom::Start(0)).with_context(|| format!("rewind {}", path.display()))?;
         outs.push((path, f, size));

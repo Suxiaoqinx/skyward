@@ -141,7 +141,8 @@ pub enum Stage {
     Writing { done: u64, total: u64 },
     /// It reads back what it wrote, one partition after another.
     Verifying { index: usize, count: usize, partition: String },
-    /// It runs the package's own last steps and switches slots.
+    /// It writes out the last of what it read, runs the package's own last
+    /// steps and switches slots.
     Finishing,
     /// An image is written and read back: bytes so far, of all.
     Flashing { done: u64, total: u64 },

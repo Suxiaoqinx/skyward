@@ -1486,9 +1486,9 @@ fn finished(
             let slot = slot.letter();
             let detail = tr!(
                 l,
-                "新系统已安装到槽位 {slot}，重启后将从该槽位启动。",
-                "新系統已安裝到槽位 {slot}，重新啟動後將從該槽位啟動。",
-                "The new system is installed to slot {slot}, which starts after a reboot."
+                "新系统已安装到槽位 {slot}，重启后将从该槽位启动，并在首次启动后合并。",
+                "新系統已安裝到槽位 {slot}，重新啟動後將從該槽位啟動，並在首次啟動後合併。",
+                "The new system is installed to slot {slot}, which starts after a reboot and merges once it has started."
             );
             let y = widgets::list(c, t, f, top, &[standing(installed, GREEN, Icon::Install, &detail)]).bottom;
             let next = widgets::list(c, t, f, y + gap, &[restart]);

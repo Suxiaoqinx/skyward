@@ -761,12 +761,15 @@ fn apply<S>(ctx: &Context, mount: &Mount<S>, update: &Update) -> Result<i32> {
             // Both outputs closed: the program has ended.
             Err(RecvTimeoutError::Disconnected) => break,
         }
-        let now = if finishing {
+        let served = mount.served().saturating_sub(update.payload_offset).min(total);
+        let now = if finishing || (total > 0 && served >= total) {
+            // Everything the package holds has been read: what is left is
+            // written out and finished, which the screen cannot count.
             Stage::Finishing
         } else if let Some((index, partition)) = &verifying {
             Stage::Verifying { index: *index, count: partitions.max(index + 1), partition: partition.clone() }
         } else {
-            Stage::Writing { done: mount.served().saturating_sub(update.payload_offset).min(total), total }
+            Stage::Writing { done: served, total }
         };
         let moved_on = std::mem::discriminant(&now) != std::mem::discriminant(&stage);
         if now != stage && (moved_on || told.elapsed() >= PROGRESS_EVERY) {
