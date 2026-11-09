@@ -1522,7 +1522,8 @@ fn finished(
                 "合併完成並重新啟動到系統前，請勿斷電。",
                 "Don't power off before the merge finishes and the system starts.",
             ]);
-            afterwards_of(c, cx, widgets::footnote(c, t, f, y, note), true)
+            let y = widgets::footnote(c, t, f, y, note);
+            afterwards_of(c, cx, y, true)
         }
         Outcome::Flashed { partition, slots } => {
             let slots = fmt::slots(l, slots);
