@@ -281,7 +281,14 @@ fn start_element() -> Result<Hal> {
 
 impl Hal {
     fn call(&self, code: Code, write: impl FnOnce(*mut Parcel) -> Status) -> Result<Option<*mut Parcel>> {
-        call(self.element, code, write)
+        let Some(answer) = call(self.element, code, write)? else { return Ok(None) };
+        // Every reply opens with the mark that says how the call ended,
+        // which is read before what the call answered.
+        if let Err(e) = went_through(answer) {
+            unsafe { (api().delete)(answer) };
+            return Err(e);
+        }
+        Ok(Some(answer))
     }
 
     fn get_atr(&self) -> Result<Option<Vec<u8>>> {
@@ -594,6 +601,20 @@ fn make_channel(output: *mut Parcel, number: u8, basic: bool, select: Option<Vec
         unsafe { drop(Box::from_raw(channel)) };
     }
     give(output, vendor(binder))
+}
+
+/// Read the mark a reply opens with, which says whether the call went
+/// through, and give why it did not where it did not.
+fn went_through(parcel: *const Parcel) -> Result<()> {
+    let mut exception: i32 = 0;
+    let status = unsafe { (api().read_i32)(parcel, &mut exception) };
+    if status != OK {
+        bail!("read how the call ended: {status}");
+    }
+    match exception {
+        NO_EXCEPTION => Ok(()),
+        other => bail!("the call ended in exception {other}"),
+    }
 }
 
 /// Open a reply with the mark that says the call went through: every AIDL
