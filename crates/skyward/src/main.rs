@@ -567,7 +567,7 @@ fn bring_up(cfg: &DeviceConfig, slot: skyward_vab::Slot, found: Result<keys::Fou
     // What the phone describes is known wherever its partitions could be
     // read at all; what they say of its keys may still not be.
     let (described, mut found) = match found {
-        Ok(found) => (found.described, Ok(found.steps)),
+        Ok(found) => (found.described, found.steps),
         Err(e) => (Vec::new(), Err(e)),
     };
     // A program the configuration starts itself is not started a second
