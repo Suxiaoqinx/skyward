@@ -60,6 +60,97 @@ oneshot = true
 user = "root"
 groups = ["root", "system", "wakelock", "graphics"]
 
+# The secure world's programs, in the order the installed system's init
+# starts them; without them nothing can use a key the phone wrapped in
+# hardware, and the data partition cannot be opened. The 17 Ultra's vendor
+# partition is this phone's file for file, so it names the same programs.
+
+# The secure world reaches back into Android through the listeners this
+# daemon registers; without them the key service cannot use any key.
+[[service]]
+path = "/vendor/bin/qseecomd"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_property = "vendor.sys.listeners.registered"
+user = "root"
+groups = ["root", "drmrpc"]
+
+# The opener the secure world's apps are reached through by programs that
+# speak to them as GlobalPlatform's TEE client does, which loads those apps
+# from /vendor/firmware_mnt/image as they are first asked for.
+[[service]]
+path = "/vendor/bin/hlosminkdaemon"
+libraries = ["/system/lib64", "/vendor/lib64"]
+user = "system"
+groups = ["system", "oem_2912", "wakelock"]
+capabilities = ["WAKE_ALARM", "BLOCK_SUSPEND"]
+
+# The key service, which is the only thing that can use the keys the phone
+# wrapped in hardware. The same program serves the secure clock and the
+# shared secret, which the phone describes apart from it.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.security.onekeymint-service-qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_service = "android.hardware.security.keymint.IKeyMintDevice/default"
+registers = [
+    "android.hardware.security.keymint.IRemotelyProvisionedComponent/default",
+    "android.hardware.security.secureclock.ISecureClock/default",
+    "android.hardware.security.sharedsecret.ISharedSecret/default",
+]
+user = "system"
+groups = ["system", "drmrpc"]
+
+# The credential service: it is what the secure world has check the secret
+# behind a screen lock, and the only thing that can hand out the note the
+# key service wants before it will use a key that secret guards.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.gatekeeper-rust-service-qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_service = "android.hardware.gatekeeper.IGatekeeper/default"
+user = "system"
+groups = ["system"]
+
+# The secure element: the phone's embedded one, which its own programs
+# reach through the HAL its vendor partition carries. The weaver's slots are
+# in it, so it runs before the weaver. It reaches the chip through the node
+# the NFC controller's driver makes, so that module is loaded first.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.secure_element-service.qti"
+libraries = ["/system/lib64", "/vendor/lib64", "/vendor/lib64/hw", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+ready_service = "android.hardware.secure_element.ISecureElement/eSE1"
+user = "system"
+groups = ["nfc", "system"]
+
+# The service the weaver asks the secure element's applets through. Android
+# keeps it in its framework, which a recovery runs none of, so Skyward
+# serves it: the same program, under the name that runs a command instead
+# of the recovery, over that secure element HAL.
+[[service]]
+path = "/system/bin/skyward"
+args = ["omapi"]
+libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+ready_service = "android.se.omapi.ISecureElementService/default"
+
+# The weaver, in the phone's NXP secure element, behind the program the
+# installed system's init enables as vendor.weaver_nxp. Every user's secret
+# is bound to a slot of it, with a screen lock or without, so without it
+# none of the users' own files open. It runs as root: its own libraries ask
+# for the installed system's libvndksupport, which the linker only searches
+# for a program that does not change its user.
+[[service]]
+path = "/odm/bin/hw/android.hardware.weaver-service.nxp-qti"
+libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+ready_service = "android.hardware.weaver.IWeaver/default"
+
+# The boot control, which says which slot the bootloader starts next and
+# switches it, writing where the bootloader reads it. It comes last: the
+# phone is usable without it.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.boot-service.qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_service = "android.hardware.boot.IBootControl/default"
+user = "root"
+groups = ["root"]
+
 # WLAN: Qualcomm's Peach on PCIe (qcom,cnss-peach in its dtbo), as on the
 # 17 Ultra, whose vendor partition this phone shares file for file but for
 # its build properties, a power hint and two radio libraries.

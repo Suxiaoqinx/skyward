@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use skyward_config::{ramdisk, DeviceConfig};
 #[cfg(target_os = "android")]
-use skyward_programs::secure::Started;
+use skyward_programs::secure::{Started, Step};
 use skyward_sys::{bcb, Power};
 use skyward_vab::SnapshotState;
 use std::path::{Path, PathBuf};
@@ -21,6 +21,8 @@ mod input;
 mod keys;
 #[cfg(target_os = "android")]
 mod merge;
+#[cfg(target_os = "android")]
+mod omapi;
 #[cfg(target_os = "android")]
 mod partwork;
 #[cfg(target_os = "android")]
@@ -189,6 +191,10 @@ enum Cmd {
     /// changes nothing.
     #[cfg(target_os = "android")]
     Weaver,
+    /// Serve the service the phone's weaver asks the secure element through,
+    /// which Android keeps in its framework.
+    #[cfg(target_os = "android")]
+    Omapi,
     /// Open the data partition with the key the phone keeps for it, check
     /// it and mount it writable as the phone does, and open each user's
     /// files that open; the owner's shared storage then shows at /sdcard.
@@ -398,6 +404,8 @@ fn main() -> Result<()> {
             Ok(())
         }
         #[cfg(target_os = "android")]
+        Cmd::Omapi => omapi::serve(),
+        #[cfg(target_os = "android")]
         Cmd::Data { close: true, .. } => {
             wipe::release_data()?;
             println!("the data partition is closed");
@@ -531,6 +539,13 @@ fn bring_up(cfg: &DeviceConfig, slot: skyward_vab::Slot, found: Result<keys::Fou
         skyward_sys::kmsg(&format!("logd not started: {e:#}"))?;
     }
     let services: Vec<Started> = cfg.services.iter().filter(|s| s.runs_on(&props)).cloned().map(Started::from).collect();
+    // A phone whose configuration names the program that serves Android's
+    // secure element service gets that service from it, as its own system
+    // does; the recovery then leaves the serving to that program, and does
+    // not register the same name itself.
+    let serves_elements_itself = services
+        .iter()
+        .any(|s| s.service.path == ramdisk::CLI && s.service.ready_service.as_deref() == Some(skyward_omapi::SERVICE));
     // The drivers ask for their firmware by name, and the kernel looks only
     // in folders of its own unless told to pass on what it does not find
     // there to ueventd, which looks in the recovery's firmware folders.
@@ -551,10 +566,20 @@ fn bring_up(cfg: &DeviceConfig, slot: skyward_vab::Slot, found: Result<keys::Fou
     }
     // What the phone describes is known wherever its partitions could be
     // read at all; what they say of its keys may still not be.
-    let (described, found) = match found {
-        Ok(found) => (found.described, found.steps),
+    let (described, mut found) = match found {
+        Ok(found) => (found.described, Ok(found.steps)),
         Err(e) => (Vec::new(), Err(e)),
     };
+    // A program the configuration starts itself is not started a second
+    // time from what the phone's partitions say, and a phone whose
+    // configuration names the program that serves Android's secure element
+    // service gets that service from it, as its own system does.
+    if let Ok(steps) = &mut found {
+        steps.retain(|step| match step {
+            Step::Start(started) => !services.iter().any(|s| s.service.path == started.service.path),
+            Step::ServeElements => !serves_elements_itself,
+        });
+    }
     // What either service directory has to know of, it has to know before
     // anything registers with it, so both are told of the configuration's
     // programs and of those that use the phone's keys together.
